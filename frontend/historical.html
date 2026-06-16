@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="th">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Historical Signals - IB Auto Trading</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+
+  <body>
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">STRATEGY RESEARCH</p>
+        <h1>Historical Signals</h1>
+        <nav class="page-nav">
+          <a href="/frontend/index.html">Dashboard</a>
+          <a class="active" href="/frontend/historical.html">
+            Historical Signals
+          </a>
+        </nav>
+      </div>
+      <span id="history-status" class="badge neutral">Ready</span>
+    </header>
+
+    <main class="container">
+      <section class="card">
+        <div class="card-header">
+          <div>
+            <p class="section-label">QUERY</p>
+            <h2>Load Historical Data</h2>
+          </div>
+        </div>
+
+        <form id="history-form" class="form-grid history-form">
+          <label>
+            Strategy
+            <select id="history-strategy">
+              <option value="SMA">SMA Crossover</option>
+              <option value="PREVIOUS_4H_RANGE">Previous 4H Range</option>
+            </select>
+          </label>
+          <label>
+            Symbol
+            <input id="history-symbol" maxlength="12" value="SPY" required />
+          </label>
+          <label class="history-sma-field">
+            Short SMA
+            <input id="history-short-window" type="number" min="1" value="5" />
+          </label>
+          <label class="history-sma-field">
+            Long SMA
+            <input id="history-long-window" type="number" min="2" value="20" />
+          </label>
+          <label>
+            Maximum rows
+            <input id="history-limit" type="number" min="1" max="1000" value="200" />
+          </label>
+          <button id="load-history-button" type="submit">
+            Load Historical Signals
+          </button>
+        </form>
+
+        <p class="card-note">
+          TWS must be connected from the Dashboard. Results are signal-only and
+          do not include commissions, slippage, or trade performance.
+        </p>
+      </section>
+
+      <section class="card">
+        <div class="card-header">
+          <div>
+            <p class="section-label">CHART</p>
+            <h2>Candlestick &amp; Signals</h2>
+          </div>
+          <span class="badge neutral">Closed bars only</span>
+        </div>
+
+        <div class="chart-legend">
+          <span><i class="legend-candle bullish"></i> Bullish</span>
+          <span><i class="legend-candle bearish"></i> Bearish</span>
+          <span><i class="legend-signal positive"></i> BUY / CALL</span>
+          <span><i class="legend-signal negative"></i> SELL / PUT</span>
+        </div>
+
+        <div id="history-chart-empty" class="chart-empty">
+          Load historical data to display the chart.
+        </div>
+        <div id="history-chart-wrapper" class="chart-wrapper hidden">
+          <canvas id="history-chart"></canvas>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="card-header">
+          <div>
+            <p class="section-label">RESULTS</p>
+            <h2 id="history-title">No data loaded</h2>
+          </div>
+          <span id="history-count" class="badge neutral">0 rows</span>
+        </div>
+
+        <div class="table-wrapper">
+          <table>
+            <thead id="history-head"></thead>
+            <tbody id="history-body">
+              <tr class="empty-row">
+                <td>Choose a strategy and load historical signals.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+
+    <script src="historical.js"></script>
+  </body>
+</html>
