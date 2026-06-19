@@ -2,6 +2,6 @@
 
 cd /d "C:\Users\Tanapon\Documents\GitHub\IBAutoTrading"
 
-start "" venv\Scripts\pythonw.exe autostart.py
+start "" .venv\Scripts\pythonw.exe auto_start.py
 
 exit
