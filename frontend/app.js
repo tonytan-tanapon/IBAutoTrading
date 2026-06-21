@@ -62,6 +62,9 @@ const elements = {
 
 let currentPreviewId = null;
 let strategyFormDirty = false;
+let realtimeSocket = null;
+let reconnectTimer = null;
+let lastBackendLogId = 0;
 
 function updateStatus(element, connected, text) {
   element.textContent = text;
@@ -79,6 +82,12 @@ function addLog(message) {
   const time = new Date().toLocaleTimeString();
   elements.log.textContent += `\n[${time}] ${message}`;
   elements.log.scrollTop = elements.log.scrollHeight;
+}
+
+function addBackendLog(item) {
+  if (item.id <= lastBackendLogId) return;
+  lastBackendLogId = item.id;
+  addLog(`Backend: ${item.message}`);
 }
 
 function formatNumber(value, digits = 2) {
@@ -101,7 +110,7 @@ async function request(path, options = {}) {
   return data;
 }
 
-async function loadStatus() {
+async function loadStatus({ autoConnect = false } = {}) {
   try {
     const data = await request("/api/status");
     updateStatus(elements.serverStatus, true, "API Running");
@@ -109,6 +118,11 @@ async function loadStatus() {
       data.connected,
       data.connected ? "Connected" : "Disconnected",
     );
+
+    if (autoConnect && !data.connected) {
+      await connectTws();
+      return;
+    }
 
     await Promise.all([
       loadAccountSummary(data.connected),
@@ -127,12 +141,27 @@ async function loadStatus() {
 
 async function loadAccountSummary(connected) {
   if (!connected) {
+    renderAccountSummary({
+      connected: false,
+      buying_power: null,
+      accounts: [],
+      paper_account: false,
+      currency: null,
+    });
+    return;
+  }
+  const data = await request("/api/account/summary");
+  renderAccountSummary(data);
+}
+
+function renderAccountSummary(data) {
+  if (!data.connected) {
     elements.buyingPower.textContent = "-";
     elements.accountNumber.textContent = "-";
     elements.accountEnvironment.textContent = "-";
     return;
   }
-  const data = await request("/api/account/summary");
+
   elements.buyingPower.textContent =
     data.buying_power === null
       ? "Loading..."
@@ -181,12 +210,16 @@ function renderPositions(positions) {
 
 async function loadMarketData() {
   const data = await request("/api/market-data");
-  if (!data.items.length) {
+  renderMarketData(data.items);
+}
+
+function renderMarketData(items) {
+  if (!items.length) {
     elements.marketQuotes.innerHTML =
       '<p class="empty-message">No market data subscriptions.</p>';
     return;
   }
-  elements.marketQuotes.innerHTML = data.items
+  elements.marketQuotes.innerHTML = items
     .map(
       (quote) => `<article class="quote">
         <div><strong>${quote.symbol}</strong><small>Streaming</small></div>
@@ -203,24 +236,50 @@ async function loadMarketData() {
 
 async function loadOrders() {
   const data = await request("/api/orders");
-  elements.orderCount.textContent = `${data.orders.length} orders`;
-  if (!data.orders.length) {
+  renderOrders(data.orders);
+}
+
+function isLiveOrder(order) {
+  const closedStatuses = new Set([
+    "Filled",
+    "Cancelled",
+    "ApiCancelled",
+    "Inactive",
+  ]);
+  return !closedStatuses.has(order.status);
+}
+
+function orderStateBadge(order) {
+  if (!order.status) {
+    return '<span class="order-state pending">Pending</span>';
+  }
+  if (isLiveOrder(order)) {
+    return '<span class="order-state live">Live</span>';
+  }
+  return '<span class="order-state closed">Closed</span>';
+}
+
+function renderOrders(orders) {
+  const liveCount = orders.filter(isLiveOrder).length;
+  elements.orderCount.textContent = liveCount
+    ? `${liveCount} live / ${orders.length} orders`
+    : `${orders.length} orders`;
+  if (!orders.length) {
     elements.ordersBody.innerHTML =
-      '<tr class="empty-row"><td colspan="9">No orders received.</td></tr>';
+      '<tr class="empty-row"><td colspan="10">No orders received.</td></tr>';
     return;
   }
-  elements.ordersBody.innerHTML = data.orders
+  elements.ordersBody.innerHTML = orders
     .sort((a, b) => b.order_id - a.order_id)
     .map((order) => {
-      const canCancel = !["Filled", "Cancelled", "ApiCancelled"].includes(
-        order.status,
-      );
-      return `<tr>
+      const canCancel = isLiveOrder(order);
+      return `<tr class="${canCancel ? "live-order-row" : ""}">
         <td>${order.order_id}</td>
         <td><strong>${order.symbol || "-"}</strong></td>
         <td>${order.action || "-"}</td>
         <td>${order.order_type || "-"}</td>
         <td>${formatNumber(order.quantity, 0)}</td>
+        <td>${orderStateBadge(order)}</td>
         <td>${order.status || "-"}</td>
         <td>${formatNumber(order.filled, 0)}</td>
         <td>${formatNumber(order.average_fill_price)}</td>
@@ -236,6 +295,10 @@ async function loadOrders() {
 
 async function loadRiskSettings() {
   const data = await request("/api/risk");
+  renderRiskSettings(data);
+}
+
+function renderRiskSettings(data) {
   elements.maxQuantity.value = data.max_quantity;
   elements.maxOrderValue.value = data.max_order_value;
   elements.killSwitch.checked = data.kill_switch;
@@ -243,6 +306,10 @@ async function loadRiskSettings() {
 
 async function loadStrategy() {
   const data = await request("/api/strategy/status");
+  renderStrategy(data);
+}
+
+function renderStrategy(data) {
   elements.strategyStatus.textContent = data.enabled ? "Enabled" : "Disabled";
   elements.strategyStatus.classList.toggle("connected", data.enabled);
   elements.strategyStatus.classList.toggle("neutral", !data.enabled);
@@ -272,6 +339,61 @@ async function loadStrategy() {
     : data.message;
   elements.strategyCheckButton.disabled = data.running_check;
   updateStrategyFields();
+}
+
+function applyRealtimeSnapshot(data) {
+  if (data.type !== "snapshot") return;
+
+  updateStatus(elements.serverStatus, true, "API Running");
+  updateTwsStatus(
+    data.status.connected,
+    data.status.connected ? "Connected" : "Disconnected",
+  );
+  renderAccountSummary(data.account);
+  renderPositions(data.positions);
+  renderMarketData(data.market_data);
+  renderOrders(data.orders);
+  renderRiskSettings(data.risk);
+  renderStrategy(data.strategy);
+  data.logs.forEach(addBackendLog);
+}
+
+function connectRealtime() {
+  if (realtimeSocket && realtimeSocket.readyState <= WebSocket.OPEN) return;
+
+  const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+  realtimeSocket = new WebSocket(`${protocol}//${window.location.host}/ws/realtime`);
+
+  realtimeSocket.addEventListener("open", () => {
+    if (reconnectTimer) {
+      clearTimeout(reconnectTimer);
+      reconnectTimer = null;
+    }
+    addLog("Realtime connection established.");
+  });
+
+  realtimeSocket.addEventListener("message", (event) => {
+    try {
+      const data = JSON.parse(event.data);
+      applyRealtimeSnapshot(data);
+    } catch (error) {
+      addLog(`Realtime update failed: ${error.message}`);
+    }
+  });
+
+  realtimeSocket.addEventListener("close", () => {
+    updateStatus(elements.serverStatus, false, "Realtime Offline");
+    if (!reconnectTimer) {
+      reconnectTimer = setTimeout(() => {
+        reconnectTimer = null;
+        connectRealtime();
+      }, 2000);
+    }
+  });
+
+  realtimeSocket.addEventListener("error", () => {
+    realtimeSocket.close();
+  });
 }
 
 function strategyPayload() {
@@ -378,6 +500,16 @@ async function disconnectAll() {
   } catch (error) {
     addLog(`Disconnect All failed: ${error.message}`);
   }
+}
+
+function disconnectOnPageClose() {
+  const url = "/api/disconnect";
+  if (navigator.sendBeacon) {
+    navigator.sendBeacon(url);
+    return;
+  }
+
+  fetch(url, { method: "POST", keepalive: true }).catch(() => {});
 }
 
 async function subscribeMarketData(event) {
@@ -495,6 +627,7 @@ elements.orderType.addEventListener("change", () => {
   );
   resetPreview();
 });
+window.addEventListener("pagehide", disconnectOnPageClose);
 
 elements.marketQuotes.addEventListener("click", async (event) => {
   const symbol = event.target.dataset.unsubscribe;
@@ -524,5 +657,5 @@ elements.ordersBody.addEventListener("click", async (event) => {
   }
 });
 
-loadStatus();
-setInterval(loadStatus, 5000);
+loadStatus({ autoConnect: true });
+connectRealtime();

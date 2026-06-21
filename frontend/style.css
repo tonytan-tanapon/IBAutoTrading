@@ -472,6 +472,37 @@ button.small {
   color: #fb7185;
 }
 
+.order-state {
+  display: inline-flex;
+  align-items: center;
+  min-width: 62px;
+  justify-content: center;
+  padding: 4px 8px;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  font-size: 0.7rem;
+  font-weight: 800;
+}
+
+.order-state.live {
+  color: #34d399;
+  background: rgb(52 211 153 / 10%);
+}
+
+.order-state.pending {
+  color: #fbbf24;
+  background: rgb(251 191 36 / 10%);
+}
+
+.order-state.closed {
+  color: #94a3b8;
+  background: rgb(148 163 184 / 8%);
+}
+
+.live-order-row {
+  background: rgb(52 211 153 / 4%);
+}
+
 .neutral-text {
   color: #94a3b8;
 }

@@ -11,6 +11,7 @@ from ..historical_signals import (
     sma_signal_history,
 )
 from ..ib_client import IBClient
+from ..realtime import realtime_broadcaster
 from ..strategy_runner import StrategyRunner
 
 
@@ -96,6 +97,7 @@ def check_strategy(
 ) -> dict[str, Any]:
     if runner.status()["running_check"]:
         raise HTTPException(status_code=409, detail="A strategy check is already running")
+    realtime_broadcaster.log("Queued strategy check")
     background_tasks.add_task(_run_check, runner)
     return {"message": "Strategy check started"}
 
@@ -106,9 +108,14 @@ def get_historical_signals(
     client: IBClient = Depends(get_ib_client),
 ) -> dict[str, Any]:
     if not client.is_ready():
+        realtime_broadcaster.log("Historical signals skipped: TWS is not connected")
         raise HTTPException(status_code=400, detail="Connect to TWS first")
 
     try:
+        symbol = request.symbol.strip().upper()
+        realtime_broadcaster.log(
+            f"Loading historical signals for {symbol} ({request.strategy_type})"
+        )
         if request.strategy_type == "PREVIOUS_4H_RANGE":
             bars = client.request_historical_bars(
                 request.symbol,
@@ -130,8 +137,13 @@ def get_historical_signals(
                 request.long_window,
             )
     except (RuntimeError, TimeoutError, ValueError) as exc:
+        realtime_broadcaster.log(f"Historical signals failed: {exc}")
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
+    realtime_broadcaster.log(
+        f"Historical signals loaded: {len(rows[-request.limit:])} rows from "
+        f"{len(signal_bars)} completed bars"
+    )
     return {
         "strategy_type": request.strategy_type,
         "symbol": request.symbol.strip().upper(),

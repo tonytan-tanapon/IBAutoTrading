@@ -46,6 +46,22 @@ class StrategyRunner:
         self.put_entry: float | None = None
         self.put_target: float | None = None
         self.put_stop: float | None = None
+        self._update_callback: Any = None
+        self._log_callback: Any = None
+
+    def set_update_callback(self, callback: Any) -> None:
+        self._update_callback = callback
+
+    def set_log_callback(self, callback: Any) -> None:
+        self._log_callback = callback
+
+    def _notify_update(self) -> None:
+        if self._update_callback:
+            self._update_callback()
+
+    def _log(self, message: str) -> None:
+        if self._log_callback:
+            self._log_callback(message)
 
     def configure(
         self,
@@ -74,6 +90,11 @@ class StrategyRunner:
             self.last_signal = None
             self.last_error = None
             self._clear_results()
+        self._log(
+            f"Strategy configured: {strategy_type} {self.config.symbol}, "
+            f"interval {interval_seconds}s"
+        )
+        self._notify_update()
 
     def start(self) -> None:
         if not self.client.is_ready():
@@ -85,6 +106,8 @@ class StrategyRunner:
             self.stop_event.clear()
             self.thread = threading.Thread(target=self._run_loop, daemon=True)
             self.thread.start()
+        self._log("Strategy enabled")
+        self._notify_update()
 
     def stop(self) -> None:
         with self.lock:
@@ -94,6 +117,8 @@ class StrategyRunner:
             self.thread = None
         if thread and thread.is_alive():
             thread.join(timeout=2)
+        self._log("Strategy disabled")
+        self._notify_update()
 
     def check_now(self) -> dict[str, Any]:
         with self.lock:
@@ -102,6 +127,7 @@ class StrategyRunner:
             self.running_check = True
             config = StrategyConfig(**asdict(self.config))
 
+        self._log(f"Strategy check started: {config.strategy_type} {config.symbol}")
         try:
             if config.strategy_type == "PREVIOUS_4H_RANGE":
                 self._check_previous_4h_range(config)
@@ -111,16 +137,21 @@ class StrategyRunner:
             with self.lock:
                 self.last_checked_at = checked_at
                 self.last_error = None
+            self._log(
+                f"Strategy check finished: {config.symbol} signal {self.last_signal}"
+            )
         except (RuntimeError, TimeoutError, ValueError) as exc:
             with self.lock:
                 self.last_checked_at = datetime.now().astimezone().isoformat(
                     timespec="seconds"
                 )
                 self.last_error = str(exc)
+            self._log(f"Strategy check failed: {exc}")
             raise
         finally:
             with self.lock:
                 self.running_check = False
+            self._notify_update()
 
         return self.status()
 
@@ -181,6 +212,7 @@ class StrategyRunner:
             self.short_sma = result.short_sma
             self.long_sma = result.long_sma
             self.bar_count = len(bars)
+        self._log(f"SMA calculated from {len(bars)} bars for {config.symbol}")
 
     def _check_previous_4h_range(self, config: StrategyConfig) -> None:
         bars = self.client.request_historical_bars(
@@ -223,6 +255,9 @@ class StrategyRunner:
             self.put_entry = result.put_entry
             self.put_target = result.put_target
             self.put_stop = result.put_stop
+        self._log(
+            f"Previous 4H range calculated from {len(bars)} bars for {config.symbol}"
+        )
 
     def _clear_results(self) -> None:
         self.last_close = None

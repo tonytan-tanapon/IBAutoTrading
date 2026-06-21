@@ -43,6 +43,22 @@ class IBClient(EWrapper, EClient):
         self._historical_requests: dict[int, list[dict[str, Any]]] = {}
         self._historical_events: dict[int, threading.Event] = {}
         self._next_request_id = 100
+        self._update_callback: Any = None
+        self._log_callback: Any = None
+
+    def set_update_callback(self, callback: Any) -> None:
+        self._update_callback = callback
+
+    def set_log_callback(self, callback: Any) -> None:
+        self._log_callback = callback
+
+    def _notify_update(self) -> None:
+        if self._update_callback:
+            self._update_callback()
+
+    def _log(self, message: str) -> None:
+        if self._log_callback:
+            self._log_callback(message)
 
     def connect_to_tws(
         self,
@@ -52,8 +68,10 @@ class IBClient(EWrapper, EClient):
         timeout: float = 5,
     ) -> bool:
         if self.is_ready():
+            self._log("TWS connection already active")
             return True
 
+        self._log(f"Connecting to TWS {host}:{port} with client ID {client_id}")
         self.ready.clear()
         self.accounts_ready.clear()
         self.last_error = None
@@ -62,6 +80,7 @@ class IBClient(EWrapper, EClient):
             self.connect(host, port, clientId=client_id)
         except OSError as exc:
             self.last_error = str(exc)
+            self._log(f"TWS connection failed: {exc}")
             return False
 
         self.thread = threading.Thread(target=self.run, daemon=True)
@@ -69,18 +88,23 @@ class IBClient(EWrapper, EClient):
 
         if not self.ready.wait(timeout):
             self.last_error = self.last_error or "Timed out waiting for TWS"
+            self._log(f"TWS connection failed: {self.last_error}")
             self.disconnect_from_tws()
             return False
 
         self.accounts_ready.wait(timeout=2)
         self.request_positions()
         self.reqOpenOrders()
+        self._log("TWS connected; requested account, positions, and open orders")
+        self._notify_update()
         return True
 
     def disconnect_from_tws(self) -> None:
+        was_connected = self.isConnected()
         self.ready.clear()
 
-        if self.isConnected():
+        if was_connected:
+            self._log("Disconnecting from TWS")
             self.cancelAccountSummary(self.ACCOUNT_SUMMARY_REQUEST_ID)
             for request_id in list(self._market_requests):
                 self.cancelMktData(request_id)
@@ -100,6 +124,9 @@ class IBClient(EWrapper, EClient):
             self._symbol_requests.clear()
             self._historical_requests.clear()
             self._historical_events.clear()
+        if was_connected:
+            self._log("Disconnected from TWS and cleared live state")
+        self._notify_update()
 
     def is_ready(self) -> bool:
         return self.isConnected() and self.ready.is_set()
@@ -116,6 +143,7 @@ class IBClient(EWrapper, EClient):
         self.positions_ready.clear()
         with self.lock:
             self.positions.clear()
+        self._log("Requesting positions from TWS")
         self.reqPositions()
 
     def subscribe_market_data(self, symbol: str) -> dict[str, Any]:
@@ -128,6 +156,7 @@ class IBClient(EWrapper, EClient):
         with self.lock:
             existing_id = self._symbol_requests.get(symbol)
             if existing_id is not None:
+                self._log(f"Market data already subscribed for {symbol}")
                 return dict(self.market_data[symbol])
 
             request_id = self._next_request_id
@@ -151,19 +180,24 @@ class IBClient(EWrapper, EClient):
             False,
             [],
         )
+        self._log(f"Subscribed to market data for {symbol}")
+        self._notify_update()
         return self.get_market_data(symbol)
 
     def unsubscribe_market_data(self, symbol: str) -> bool:
         symbol = symbol.strip().upper()
         with self.lock:
             request_id = self._symbol_requests.pop(symbol, None)
-            if request_id is None:
-                return False
+        if request_id is None:
+            self._log(f"Market data was not subscribed for {symbol}")
+            return False
             self._market_requests.pop(request_id, None)
             self.market_data.pop(symbol, None)
 
         if self.isConnected():
             self.cancelMktData(request_id)
+        self._log(f"Unsubscribed from market data for {symbol}")
+        self._notify_update()
         return True
 
     def get_market_data(self, symbol: str | None = None) -> Any:
@@ -183,6 +217,10 @@ class IBClient(EWrapper, EClient):
         if not self.is_ready():
             raise RuntimeError("TWS is not connected")
 
+        self._log(
+            f"Loading historical bars for {symbol.strip().upper()} "
+            f"({duration}, {bar_size})"
+        )
         with self.lock:
             request_id = self._next_request_id
             self._next_request_id += 1
@@ -208,11 +246,13 @@ class IBClient(EWrapper, EClient):
             with self.lock:
                 self._historical_requests.pop(request_id, None)
                 self._historical_events.pop(request_id, None)
+            self._log(f"Historical bars timed out for {symbol.strip().upper()}")
             raise TimeoutError("Timed out waiting for historical bars")
 
         with self.lock:
             bars = self._historical_requests.pop(request_id, [])
             self._historical_events.pop(request_id, None)
+        self._log(f"Loaded {len(bars)} historical bars for {symbol.strip().upper()}")
         return bars
 
     def submit_order(
@@ -255,12 +295,18 @@ class IBClient(EWrapper, EClient):
             }
 
         self.placeOrder(order_id, stock_contract(symbol), order)
+        self._log(
+            f"Submitted {order.orderType} {order.action} order "
+            f"{order_id} for {quantity} {symbol.upper()}"
+        )
+        self._notify_update()
         return order_id
 
     def cancel_order(self, order_id: int) -> None:
         if not self.is_ready():
             raise RuntimeError("TWS is not connected")
         self.cancelOrder(order_id)
+        self._log(f"Cancel requested for order {order_id}")
 
     def get_orders(self) -> list[dict[str, Any]]:
         with self.lock:
@@ -274,6 +320,8 @@ class IBClient(EWrapper, EClient):
             "All",
             "BuyingPower",
         )
+        self._log("Received next valid order ID and requested account summary")
+        self._notify_update()
 
     def managedAccounts(self, accounts_list: str) -> None:
         with self.lock:
@@ -281,9 +329,13 @@ class IBClient(EWrapper, EClient):
                 account.strip() for account in accounts_list.split(",") if account.strip()
             ]
         self.accounts_ready.set()
+        self._log(f"Managed accounts loaded: {', '.join(self.accounts) or 'none'}")
+        self._notify_update()
 
     def connectionClosed(self) -> None:
         self.ready.clear()
+        self._log("TWS connection closed")
+        self._notify_update()
 
     def error(
         self,
@@ -296,6 +348,8 @@ class IBClient(EWrapper, EClient):
         if error_code not in informational_codes:
             self.last_error = f"{error_code}: {error_string}"
             print(f"TWS error {self.last_error}")
+            self._log(f"TWS error {self.last_error}")
+            self._notify_update()
 
     def accountSummary(
         self,
@@ -309,6 +363,8 @@ class IBClient(EWrapper, EClient):
             with self.lock:
                 self.buying_power = float(value)
                 self.buying_power_currency = currency
+            self._log(f"Account buying power updated: {value} {currency}")
+            self._notify_update()
 
     def position(
         self,
@@ -330,10 +386,14 @@ class IBClient(EWrapper, EClient):
                 "market_value": None,
                 "unrealized_pnl": None,
             }
+        self._log(f"Position loaded: {contract.symbol} {float(position):g}")
+        self._notify_update()
 
     def positionEnd(self) -> None:
         self.positions_ready.set()
         self.cancelPositions()
+        self._log(f"Positions request complete: {len(self.positions)} open positions")
+        self._notify_update()
 
     def tickPrice(
         self,
@@ -353,6 +413,7 @@ class IBClient(EWrapper, EClient):
                 return
             self.market_data[symbol][field] = price
             self.market_data[symbol]["updated_at"] = time.time()
+        self._notify_update()
 
     def historicalData(self, req_id: int, bar: Any) -> None:
         with self.lock:
@@ -395,6 +456,11 @@ class IBClient(EWrapper, EClient):
                     "status": order_state.status or current.get("status", "Unknown"),
                 }
             )
+        self._log(
+            f"Open order loaded: {order_id} {contract.symbol} "
+            f"{current.get('status', 'Unknown')}"
+        )
+        self._notify_update()
 
     def orderStatus(
         self,
@@ -420,3 +486,8 @@ class IBClient(EWrapper, EClient):
                     "average_fill_price": avg_fill_price,
                 }
             )
+        self._log(
+            f"Order {order_id} status: {status}, "
+            f"filled {float(filled):g}, remaining {float(remaining):g}"
+        )
+        self._notify_update()

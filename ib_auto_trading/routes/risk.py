@@ -1,6 +1,7 @@
 from fastapi import APIRouter
 from pydantic import BaseModel, Field
 
+from ..realtime import realtime_broadcaster
 from ..risk import risk_settings
 
 
@@ -15,6 +16,7 @@ class RiskUpdate(BaseModel):
 
 @router.get("")
 def get_risk_settings() -> dict[str, bool | int | float]:
+    realtime_broadcaster.log("Loading risk settings")
     return risk_settings.to_dict()
 
 
@@ -25,4 +27,5 @@ def update_risk_settings(
     risk_settings.max_quantity = request.max_quantity
     risk_settings.max_order_value = request.max_order_value
     risk_settings.kill_switch = request.kill_switch
+    realtime_broadcaster.log("Risk settings updated")
     return risk_settings.to_dict()

@@ -4,6 +4,8 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from ..dependencies import get_ib_client
 from ..ib_client import IBClient
+from ..realtime import realtime_broadcaster
+from ..services.position_service import position_snapshots
 
 
 router = APIRouter(prefix="/api/positions", tags=["positions"])
@@ -14,33 +16,20 @@ def get_positions(
     refresh: bool = False,
     client: IBClient = Depends(get_ib_client),
 ) -> dict[str, Any]:
+    realtime_broadcaster.log(
+        "Loading positions with TWS refresh" if refresh else "Loading positions"
+    )
     if not client.is_ready():
+        realtime_broadcaster.log("Positions skipped: TWS is not connected")
         return {"connected": False, "positions": []}
 
     if refresh:
         client.request_positions()
 
-    result = []
-    with client.lock:
-        positions = [dict(position) for position in client.positions.values()]
+    try:
+        result = position_snapshots(client, ensure_market_data=True)
+    except (RuntimeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    for position in positions:
-        symbol = position["symbol"]
-        market = client.get_market_data(symbol)
-        if market is None:
-            try:
-                market = client.subscribe_market_data(symbol)
-            except (RuntimeError, ValueError) as exc:
-                raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-        market_price = market.get("last") or market.get("close")
-        if market_price is not None:
-            market_value = market_price * position["quantity"]
-            cost_value = position["average_cost"] * position["quantity"]
-            position["market_price"] = market_price
-            position["market_value"] = market_value
-            position["unrealized_pnl"] = market_value - cost_value
-
-        result.append(position)
-
+    realtime_broadcaster.log(f"Loaded {len(result)} positions")
     return {"connected": True, "positions": result}
