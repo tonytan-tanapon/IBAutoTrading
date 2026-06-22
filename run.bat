@@ -1,5 +1,6 @@
 @echo off
 cd /d "%~dp0"
 
-call .venv\Scripts\activate.bat
-uvicorn ib_auto_trading.api:app --reload
+.\.venv\Scripts\python.exe -m backend
+
+pause
