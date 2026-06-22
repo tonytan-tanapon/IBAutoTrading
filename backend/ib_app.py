@@ -14,12 +14,13 @@ class App(EWrapper, EClient):
 
         self.next_order_id = None
         self.req_id_to_symbol = {}
-        self.next_request_id = 1
+        self.next_request_id = 100000
         self.market_data = {}
         self.positions = {}
         self.account_summary = {}
         self.orders = {}
         self.errors = []
+        self.request_errors = {}
         self.connected_event = threading.Event()
         self.market_data_event = threading.Event()
 
@@ -39,11 +40,34 @@ class App(EWrapper, EClient):
 
         self.option_chains = {}
         self.option_chain_events = {}
+
+        self.option_market_data = {}
+        self.option_market_data_events = {}
+
+        self.request_id_lock = threading.Lock()
+        self.order_id_lock = threading.Lock()
+        self.order_ids = set()
     
     def nextValidId(self, order_id: int):
         print(f"Connected. Next order id: {order_id}")
         self.next_order_id = order_id
         self.connected_event.set()
+
+    def get_next_request_id(self):
+        with self.request_id_lock:
+            req_id = self.next_request_id
+            self.next_request_id += 1
+            return req_id
+
+    def get_next_order_id(self):
+        with self.order_id_lock:
+            if self.next_order_id is None:
+                raise RuntimeError("No next order id available")
+
+            order_id = self.next_order_id
+            self.next_order_id += 1
+            self.order_ids.add(order_id)
+            return order_id
 
     def request_market_data(self, symbol: str = "EUR/USD", asset_type: str = "forex"):
         if asset_type == "stock":
@@ -53,8 +77,7 @@ class App(EWrapper, EClient):
         else:
             raise ValueError("asset_type must be stock or forex")
 
-        req_id = self.next_request_id
-        self.next_request_id += 1
+        req_id = self.get_next_request_id()
         self.req_id_to_symbol[req_id] = symbol_key
 
         self.reqMarketDataType(1)
@@ -65,6 +88,23 @@ class App(EWrapper, EClient):
         tick_name = TICK_PRICE_TYPES.get(tick_type)
 
         if tick_name is None:
+            return
+
+        if req_id in self.option_market_data:
+            data = self.option_market_data[req_id]
+
+            if tick_name in {"bid", "ask", "last"}:
+                data[tick_name] = price
+                data["updated_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+
+            bid = data.get("bid")
+            ask = data.get("ask")
+
+            if bid and ask and bid > 0 and ask > 0:
+                event = self.option_market_data_events.get(req_id)
+                if event:
+                    event.set()
+
             return
 
         symbol = self.req_id_to_symbol.get(req_id, "UNKNOWN")
@@ -84,6 +124,7 @@ class App(EWrapper, EClient):
     def request_account_summary(self):
         self.account_summary_event.clear()
         self.account_summary.clear()
+        self.request_errors.pop(self.account_summary_req_id, None)
 
         self.reqAccountSummary(
             self.account_summary_req_id,
@@ -121,14 +162,25 @@ class App(EWrapper, EClient):
 
         if contract.secType == "CASH":
             symbol = f"{contract.symbol}/{contract.currency}"
+        elif contract.secType == "OPT":
+            symbol = getattr(contract, "localSymbol", None) or (
+                f"{contract.symbol} {contract.lastTradeDateOrContractMonth} "
+                f"{contract.strike} {contract.right}"
+            )
         else:
             symbol = contract.symbol
 
         self.positions[symbol] = {
             "account": account,
             "symbol": symbol,
+            "underlying_symbol": contract.symbol,
             "sec_type": contract.secType,
             "currency": contract.currency,
+            "expiry": getattr(contract, "lastTradeDateOrContractMonth", None),
+            "strike": getattr(contract, "strike", None),
+            "right": getattr(contract, "right", None),
+            "local_symbol": getattr(contract, "localSymbol", None),
+            "multiplier": getattr(contract, "multiplier", None),
             "quantity": quantity,
             "avg_cost": avgCost,
         }
@@ -190,8 +242,7 @@ class App(EWrapper, EClient):
         else:
             raise ValueError("asset_type must be stock or forex")
 
-        req_id = self.next_request_id
-        self.next_request_id += 1
+        req_id = self.get_next_request_id()
 
         event = threading.Event()
 
@@ -209,6 +260,46 @@ class App(EWrapper, EClient):
             1,           # useRTH
             1,           # formatDate
             False,       # keepUpToDate
+            [],
+        )
+
+        return req_id, event
+
+    def request_option_historical_data(
+        self,
+        symbol: str,
+        expiry: str,
+        strike: float,
+        right: str,
+        duration: str,
+        bar_size: str,
+        what_to_show: str = "TRADES",
+    ):
+        contract, symbol_key = option_contract(
+            symbol=symbol,
+            expiry=expiry,
+            strike=strike,
+            right=right,
+        )
+
+        req_id = self.get_next_request_id()
+        event = threading.Event()
+
+        self.historical_data[req_id] = []
+        self.historical_events[req_id] = event
+        self.historical_req_id_to_symbol[req_id] = symbol_key
+        self.request_errors.pop(req_id, None)
+
+        self.reqHistoricalData(
+            req_id,
+            contract,
+            "",
+            duration,
+            bar_size,
+            what_to_show,
+            1,
+            1,
+            False,
             [],
         )
 
@@ -237,9 +328,6 @@ class App(EWrapper, EClient):
     #### place Order 
     #####################
     def place_market_order(self, symbol: str, asset_type: str, action: str, quantity: int):
-        if self.next_order_id is None:
-            raise RuntimeError("No next order id available")
-
         if asset_type == "stock":
             contract, symbol_key = stock_contract(symbol)
         elif asset_type == "forex":
@@ -254,8 +342,7 @@ class App(EWrapper, EClient):
         order.tif = "DAY"
         order.transmit = True
 
-        order_id = self.next_order_id
-        self.next_order_id += 1
+        order_id = self.get_next_order_id()
 
         self.placeOrder(order_id, contract, order)
 
@@ -271,9 +358,6 @@ class App(EWrapper, EClient):
         quantity: int,
         limit_price: float,
     ):
-        if self.next_order_id is None:
-            raise RuntimeError("No next order id available")
-
         contract, symbol_key = option_contract(
             symbol=symbol,
             expiry=expiry,
@@ -289,8 +373,7 @@ class App(EWrapper, EClient):
         order.tif = "DAY"
         order.transmit = True
 
-        order_id = self.next_order_id
-        self.next_order_id += 1
+        order_id = self.get_next_order_id()
 
         self.placeOrder(order_id, contract, order)
 
@@ -342,8 +425,7 @@ class App(EWrapper, EClient):
         else:
             raise ValueError("Only stock contract details supported for now")
 
-        req_id = self.next_request_id
-        self.next_request_id += 1
+        req_id = self.get_next_request_id()
 
         event = threading.Event()
 
@@ -364,8 +446,7 @@ class App(EWrapper, EClient):
             event.set()
 
     def request_option_chain(self, underlying_symbol: str, underlying_con_id: int):
-        req_id = self.next_request_id
-        self.next_request_id += 1
+        req_id = self.get_next_request_id()
 
         event = threading.Event()
 
@@ -441,11 +522,59 @@ class App(EWrapper, EClient):
             }
         )
 
-        if isinstance(req_id, int) and req_id >= 0:
+        if isinstance(req_id, int) and req_id in self.order_ids:
             order = self.orders.setdefault(req_id, {"order_id": req_id})
             order["status"] = "Rejected"
             order["error_code"] = error_code
             order["error_message"] = error_string
             self.last_order_status[req_id] = "Rejected"
+        elif isinstance(req_id, int) and req_id >= 0:
+            self.request_errors[req_id] = {
+                "code": error_code,
+                "message": error_string,
+                "advanced": advanced_order_reject_json,
+            }
+
+            event = self.historical_events.get(req_id)
+            if event:
+                event.set()
+
+            event = self.contract_details_events.get(req_id)
+            if event:
+                event.set()
+
+            event = self.option_chain_events.get(req_id)
+            if event:
+                event.set()
+
+            event = self.option_market_data_events.get(req_id)
+            if event:
+                event.set()
+
+            if req_id == self.account_summary_req_id:
+                self.account_summary_event.set()
 
         print(message)
+
+    ############################
+    #### opion market data
+    def request_option_market_data(self, symbol, expiry, strike, right):
+        contract, symbol_key = option_contract(
+            symbol=symbol,
+            expiry=expiry,
+            strike=strike,
+            right=right,
+        )
+
+        req_id = self.get_next_request_id()
+        self.req_id_to_symbol[req_id] = symbol_key
+        self.request_errors.pop(req_id, None)
+
+        event = threading.Event()
+        self.option_market_data_events[req_id] = event
+        self.option_market_data[req_id] = {}
+
+        self.reqMarketDataType(1)
+        self.reqMktData(req_id, contract, "", False, False, [])
+
+        return req_id, event

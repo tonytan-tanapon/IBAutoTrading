@@ -1,23 +1,26 @@
 import threading
 
-import time
 from .ib_app import App
-from .strategy.strategy import Strategy
+from .strategy.registry import create_strategy
 from .option_selector import OptionSelector
+from .option_pricing import OptionPricingService
+from .risk_manager import RiskManager
+from .order_manager import OrderManager
+from concurrent.futures import ThreadPoolExecutor
 
 from .config import (
+    IB_HOST,
+    IB_PORT,
+    IB_CLIENT_ID,
     UNDERLYING_SYMBOL,
     UNDERLYING_ASSET_TYPE,
     HISTORICAL_SYMBOL,
     HISTORICAL_ASSET_TYPE,
     HISTORICAL_DURATION,
     HISTORICAL_BAR_SIZE,
-    DRY_RUN_ORDERS,
-    IGNORE_OPEN_ORDERS_FOR_TEST,
-    FORCE_SEND_ONCE,
-    TEST_ORDER_QUANTITY,
-    TEST_ORDER_LIMIT_PRICE,
-    IGNORE_POSITIONS_FOR_TEST,
+    HISTORICAL_TIMEOUT,
+    SHOW_STRATEGY_SNAPSHOT,
+    STRATEGY_NAME,
 )
 
 class TradingEngine:
@@ -25,18 +28,24 @@ class TradingEngine:
         self.ib = App()
         self.thread = None
         self.running = False
-        self.strategy = Strategy()
+        self.strategy = create_strategy(STRATEGY_NAME)
         self.historical_data = []
-        self.order_in_flight = False
-        self.pending_order_id = None
         self.option_chain = None
         self.option_selector = OptionSelector()
-
-        self.force_order_sent = False
+        self.option_pricing = OptionPricingService(
+            self.ib,
+            self.raise_request_error_if_any,
+        )
+        self.risk_manager = RiskManager()
+        self.order_manager = OrderManager(
+            ib=self.ib,
+            option_selector=self.option_selector,
+            option_pricing=self.option_pricing,
+            risk_manager=self.risk_manager,
+        )
 
     def start(self):
-        self.ib.connect("127.0.0.1", 7497, clientId=0)
-
+        self.ib.connect(IB_HOST, IB_PORT, clientId=IB_CLIENT_ID)
         self.thread = threading.Thread(target=self.ib.run, daemon=True)
         self.thread.start()
 
@@ -49,20 +58,33 @@ class TradingEngine:
         self.running = True
 
     def load_initial_state(self):
-        self.load_account_once()
-        self.load_positions_once()
-        self.load_open_orders_once()
-        self.historical_data = self.load_historical_once(
-            HISTORICAL_SYMBOL,
-            asset_type=HISTORICAL_ASSET_TYPE,
-            duration=HISTORICAL_DURATION,
-            bar_size=HISTORICAL_BAR_SIZE,
-        )
+        with ThreadPoolExecutor(max_workers=5) as executor:
+            account_future = executor.submit(self.load_account_once)
+            positions_future = executor.submit(self.load_positions_once)
+            open_orders_future = executor.submit(self.load_open_orders_once)
 
-        self.option_chain = self.load_option_chain_once(UNDERLYING_SYMBOL)
+            historical_future = executor.submit(
+                self.load_historical_once,
+                HISTORICAL_SYMBOL,
+                asset_type=HISTORICAL_ASSET_TYPE,
+                duration=HISTORICAL_DURATION,
+                bar_size=HISTORICAL_BAR_SIZE,
+                timeout=HISTORICAL_TIMEOUT,
+            )
+
+            option_chain_future = executor.submit(
+                self.load_option_chain_once,
+                UNDERLYING_SYMBOL,
+            )
+
+            account_future.result()
+            positions_future.result()
+            open_orders_future.result()
+            self.historical_data = historical_future.result()
+            self.option_chain = option_chain_future.result()
     
     
-    def subscribe_market_data(self, symbol: str = "EUR/USD", asset_type: str = "forex"):
+    def subscribe_market_data(self, symbol: str, asset_type: str ):
         if not self.is_ready():
             raise RuntimeError("Engine is not connected")
 
@@ -78,9 +100,11 @@ class TradingEngine:
             self.ib.market_data_event.clear()
 
             context = self.get_strategy_context()
-            signal = self.strategy.check_signal(context)
+            snapshot = self.strategy.get_snapshot(context)
+            self.print_strategy_snapshot(snapshot)
+            signal = snapshot["signal"]
 
-            self.manage_orders(context, signal)
+            self.order_manager.manage_orders(context, signal)
 
     def stop(self):
         self.running = False
@@ -90,7 +114,13 @@ class TradingEngine:
     def is_ready(self):
         return self.running and self.ib.connected_event.is_set()
 
-    
+    def raise_request_error_if_any(self, req_id: int, label: str):
+        error = self.ib.request_errors.get(req_id)
+
+        if error:
+            raise RuntimeError(
+                f"{label} error code={error['code']} message={error['message']}"
+            )
  
 
     def get_strategy_context(self):
@@ -103,81 +133,68 @@ class TradingEngine:
             "option_chain": self.option_chain,
         }
 
-    def manage_orders(self, context, signal=None):
-        DONE_STATUSES = {"Filled", "Cancelled", "Inactive", "ApiCancelled", "Rejected"}
+    def get_strategy_snapshot(self):
+        context = self.get_strategy_context()
+        return self.strategy.get_snapshot(context)
 
-        if self.pending_order_id is not None:
-            status = self.ib.last_order_status.get(self.pending_order_id)
-
-            if status in DONE_STATUSES:
-                self.order_in_flight = False
-                self.pending_order_id = None
-            else:
-                print(f"Order {self.pending_order_id} in flight ({status}). Skip new signal.")
-                return
-
-        if self.order_in_flight:
-            print("Order in flight. Skip new signal.")
+    def print_strategy_snapshot(self, snapshot):
+        if not SHOW_STRATEGY_SNAPSHOT:
             return
 
-        positions = context["positions"]
-        orders = context["orders"]
+        compact_snapshot = self.compact_snapshot(snapshot)
 
-        if orders and not IGNORE_OPEN_ORDERS_FOR_TEST:
-            print("There is open order. Do not send duplicate order.")
+        print()
+        print("=====Strategy Snapshot====")
+        self.print_table(self.flatten_snapshot(compact_snapshot))
+
+    def print_table(self, rows):
+        if not rows:
+            print("(empty)")
             return
 
-        if positions and not IGNORE_POSITIONS_FOR_TEST:
-            print("There is position. Use signal as exit decision.")
+        key_width = min(max(len(row[0]) for row in rows), 48)
 
-            if signal and signal.get("action") == "SELL":
-                print("Close position")
+        print(f"{'Field':<{key_width}} | Value")
+        print(f"{'-' * key_width}-+-{'-' * 60}")
 
-            return
+        for key, value in rows:
+            print(f"{key:<{key_width}} | {value}")
 
-        if signal:
-            if FORCE_SEND_ONCE and self.force_order_sent:
-                print("Force order already sent. Skip.")
-                return
+    def flatten_snapshot(self, value, prefix=""):
+        rows = []
 
-            option_contract_info = self.option_selector.select_contract(signal, context)
-            quantity = TEST_ORDER_QUANTITY
-            limit_price = TEST_ORDER_LIMIT_PRICE
+        if isinstance(value, dict):
+            for key, item in value.items():
+                next_prefix = f"{prefix}.{key}" if prefix else str(key)
+                rows.extend(self.flatten_snapshot(item, next_prefix))
+            return rows
 
-            print("Selected option:", option_contract_info)
-            print(f"Order settings: quantity={quantity} limit_price={limit_price}")
+        rows.append((prefix, self.format_snapshot_value(value)))
+        return rows
 
-            if DRY_RUN_ORDERS:
-                print("DRY RUN: would submit option order")
-                print("signal:", signal)
-                print("contract:", option_contract_info)
-                return
+    def format_snapshot_value(self, value):
+        if isinstance(value, float):
+            return f"{value:.4f}"
 
-            self.order_in_flight = True
+        return str(value)
 
-            try:
-                order_id = self.ib.place_limit_option_order(
-                    symbol=option_contract_info["symbol"],
-                    expiry=option_contract_info["expiry"],
-                    strike=option_contract_info["strike"],
-                    right=option_contract_info["right"],
-                    action=signal["action"],
-                    quantity=quantity,
-                    limit_price=limit_price,
-                )
+    def compact_snapshot(self, value):
+        if isinstance(value, dict):
+            return {
+                key: self.compact_snapshot(item)
+                for key, item in value.items()
+            }
 
-                self.pending_order_id = order_id
-                self.force_order_sent = True
+        if isinstance(value, list):
+            if len(value) <= 5:
+                return [self.compact_snapshot(item) for item in value]
 
-                print("Submitted option order", order_id)
+            return {
+                "count": len(value),
+                "latest": self.compact_snapshot(value[-1]),
+            }
 
-            except Exception:
-                self.order_in_flight = False
-                self.pending_order_id = None
-                raise
-            
-
-            
+        return value
 
     def load_account_once(self, timeout: float = 10):
         if not self.is_ready():
@@ -186,7 +203,16 @@ class TradingEngine:
         self.ib.request_account_summary()
 
         if not self.ib.account_summary_event.wait(timeout=timeout):
+            self.raise_request_error_if_any(
+                self.ib.account_summary_req_id,
+                "Account summary",
+            )
             raise RuntimeError("Account summary timeout")
+
+        self.raise_request_error_if_any(
+            self.ib.account_summary_req_id,
+            "Account summary",
+        )
 
         self.ib.cancelAccountSummary(self.ib.account_summary_req_id)
 
@@ -224,11 +250,11 @@ class TradingEngine:
 
     def load_historical_once(
         self,
-        symbol: str = "EUR/USD",
-        asset_type: str = "forex",
-        duration: str = "2 D",
-        bar_size: str = "1 min",
-        timeout: float = 15,
+        symbol: str ,
+        asset_type: str ,
+        duration: str ,
+        bar_size: str ,
+        timeout: float ,
     ):
         if not self.is_ready():
             raise RuntimeError("Engine is not connected")
@@ -241,8 +267,11 @@ class TradingEngine:
         )
 
         if not event.wait(timeout=timeout):
+            self.raise_request_error_if_any(req_id, "Historical data")
             self.ib.cancelHistoricalData(req_id)
             raise RuntimeError("Historical data timeout")
+
+        self.raise_request_error_if_any(req_id, "Historical data")
 
         bars = self.ib.historical_data.get(req_id, [])
 
@@ -257,7 +286,10 @@ class TradingEngine:
         details_req_id, details_event = self.ib.request_contract_details(symbol, "stock")
 
         if not details_event.wait(timeout=timeout):
+            self.raise_request_error_if_any(details_req_id, "Contract details")
             raise RuntimeError("Contract details timeout")
+
+        self.raise_request_error_if_any(details_req_id, "Contract details")
 
         details = self.ib.contract_details.get(details_req_id, [])
 
@@ -272,7 +304,10 @@ class TradingEngine:
         )
 
         if not chain_event.wait(timeout=timeout):
+            self.raise_request_error_if_any(chain_req_id, "Option chain")
             raise RuntimeError("Option chain timeout")
+
+        self.raise_request_error_if_any(chain_req_id, "Option chain")
 
         chains = self.ib.option_chains.get(chain_req_id, [])
 
@@ -295,28 +330,9 @@ class TradingEngine:
         self.ib.market_data_event.clear()
 
         context = self.get_strategy_context()
-        signal = self.strategy.check_signal(context)
+        snapshot = self.strategy.get_snapshot(context)
+        self.print_strategy_snapshot(snapshot)
+        signal = snapshot["signal"]
 
-        self.manage_orders(context, signal)
-        self.wait_for_order_ack(timeout=10)
-
-    def wait_for_order_ack(self, timeout: float = 10):
-        if self.pending_order_id is None:
-            return
-
-        deadline = time.time() + timeout
-
-        while time.time() < deadline:
-            status = self.ib.last_order_status.get(self.pending_order_id)
-            order = self.ib.orders.get(self.pending_order_id)
-
-            if status or order:
-                print("Order acknowledged")
-                print("order_id:", self.pending_order_id)
-                print("status:", status)
-                print("order:", order)
-                return
-
-            time.sleep(0.25)
-
-        print("No order acknowledgement received before timeout")
+        self.order_manager.manage_orders(context, signal)
+        self.order_manager.wait_for_order_ack(timeout=10)

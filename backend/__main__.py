@@ -1,5 +1,4 @@
 from .trading_engine import TradingEngine
-from .config import UNDERLYING_SYMBOL, UNDERLYING_ASSET_TYPE
 from .config import RUN_MODE, UNDERLYING_SYMBOL, UNDERLYING_ASSET_TYPE
 
 
