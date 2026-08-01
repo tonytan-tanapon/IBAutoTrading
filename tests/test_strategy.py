@@ -1,6 +1,7 @@
 import unittest
 from datetime import datetime, timedelta
 
+from backend.strategy.indicators import parse_bar_datetime
 from ib_auto_trading.strategies.sma import sma_crossover
 from ib_auto_trading.historical_signals import (
     completed_bars,
@@ -138,6 +139,14 @@ class SmaStrategyTests(unittest.TestCase):
         self.assertEqual(rows[0]["previous_high"], 110)
         self.assertEqual(rows[0]["previous_low"], 100)
         self.assertEqual(rows[0]["signal"], "CALL")
+
+    def test_parse_bar_datetime_strips_ib_timezone_suffix(self) -> None:
+        result = parse_bar_datetime("20260731 15:30:00 US/Eastern")
+
+        self.assertEqual(
+            result,
+            datetime(2026, 7, 31, 15, 30, 0),
+        )
 
     def test_completed_bars_keeps_friday_bar_on_sunday(self) -> None:
         bars = [{"time": "20260612 12:00:00", "close": 100}]

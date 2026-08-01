@@ -99,12 +99,15 @@ class TradingEngine:
 
             self.ib.market_data_event.clear()
 
-            context = self.get_strategy_context()
-            snapshot = self.strategy.get_snapshot(context)
-            self.print_strategy_snapshot(snapshot)
-            signal = snapshot["signal"]
+            try:
+                context = self.get_strategy_context()
+                snapshot = self.strategy.get_snapshot(context)
+                self.print_strategy_snapshot(snapshot)
+                signal = snapshot["signal"]
 
-            self.order_manager.manage_orders(context, signal)
+                self.order_manager.manage_orders(context, signal)
+            except Exception as exc:
+                print(f"Processing error: {type(exc).__name__}: {exc}")
 
     def stop(self):
         self.running = False

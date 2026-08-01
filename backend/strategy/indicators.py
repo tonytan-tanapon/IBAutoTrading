@@ -9,6 +9,20 @@ TIME_FORMATS = (
 )
 
 
+def _strip_timezone_suffix(text: str) -> str:
+    parts = text.rsplit(" ", 1)
+
+    if len(parts) != 2:
+        return text
+
+    suffix = parts[1]
+
+    if "/" in suffix or suffix.upper() in ("UTC", "GMT") or suffix.isalpha():
+        return parts[0]
+
+    return text
+
+
 def parse_timeframe_minutes(value: str):
     parts = value.strip().lower().split()
 
@@ -56,6 +70,7 @@ def parse_bar_datetime(value):
         return value
 
     text = str(value).strip()
+    normalized_text = _strip_timezone_suffix(text)
 
     for time_format in TIME_FORMATS:
         try:
@@ -63,10 +78,23 @@ def parse_bar_datetime(value):
         except ValueError:
             pass
 
+    if normalized_text != text:
+        for time_format in TIME_FORMATS:
+            try:
+                return datetime.strptime(normalized_text, time_format)
+            except ValueError:
+                pass
+
     try:
         return datetime.fromisoformat(text)
-    except ValueError as error:
-        raise ValueError(f"Unsupported bar time format: {value}") from error
+    except ValueError:
+        if normalized_text != text:
+            try:
+                return datetime.fromisoformat(normalized_text)
+            except ValueError:
+                pass
+
+    raise ValueError(f"Unsupported bar time format: {value}")
 
 
 def parse_anchor_time(value: str):

@@ -53,6 +53,10 @@ class App(EWrapper, EClient):
         self.next_order_id = order_id
         self.connected_event.set()
 
+    def connectionClosed(self):
+        self.connected_event.clear()
+        print("TWS connection closed")
+
     def get_next_request_id(self):
         with self.request_id_lock:
             req_id = self.next_request_id
