@@ -6,8 +6,6 @@ from .option_selector import OptionSelector
 from .option_pricing import OptionPricingService
 from .risk_manager import RiskManager
 from .order_manager import OrderManager
-from concurrent.futures import ThreadPoolExecutor
-
 from .config import (
     IB_HOST,
     IB_PORT,
@@ -45,6 +43,8 @@ class TradingEngine:
         )
 
     def start(self):
+        self.ib.disconnect_requested = False
+        self.ib.last_connection_close = None
         self.ib.connect(IB_HOST, IB_PORT, clientId=IB_CLIENT_ID)
         self.thread = threading.Thread(target=self.ib.run, daemon=True)
         self.thread.start()
@@ -58,30 +58,21 @@ class TradingEngine:
         self.running = True
 
     def load_initial_state(self):
-        with ThreadPoolExecutor(max_workers=5) as executor:
-            account_future = executor.submit(self.load_account_once)
-            positions_future = executor.submit(self.load_positions_once)
-            open_orders_future = executor.submit(self.load_open_orders_once)
+        self.load_account_once()
+        self.load_positions_once()
+        self.load_open_orders_once()
 
-            historical_future = executor.submit(
-                self.load_historical_once,
-                HISTORICAL_SYMBOL,
-                asset_type=HISTORICAL_ASSET_TYPE,
-                duration=HISTORICAL_DURATION,
-                bar_size=HISTORICAL_BAR_SIZE,
-                timeout=HISTORICAL_TIMEOUT,
-            )
+        self.historical_data = self.load_historical_once(
+            HISTORICAL_SYMBOL,
+            asset_type=HISTORICAL_ASSET_TYPE,
+            duration=HISTORICAL_DURATION,
+            bar_size=HISTORICAL_BAR_SIZE,
+            timeout=HISTORICAL_TIMEOUT,
+        )
 
-            option_chain_future = executor.submit(
-                self.load_option_chain_once,
-                UNDERLYING_SYMBOL,
-            )
-
-            account_future.result()
-            positions_future.result()
-            open_orders_future.result()
-            self.historical_data = historical_future.result()
-            self.option_chain = option_chain_future.result()
+        self.option_chain = self.load_option_chain_once(
+            UNDERLYING_SYMBOL,
+        )
     
     
     def subscribe_market_data(self, symbol: str, asset_type: str ):
@@ -111,8 +102,13 @@ class TradingEngine:
 
     def stop(self):
         self.running = False
-        self.ib.disconnect()
-        print("Disconnected")
+        was_connected = self.ib.isConnected()
+
+        if was_connected:
+            self.ib.disconnect_requested = True
+            self.ib.disconnect()
+
+        print(f"Engine stopped was_connected={was_connected}")
 
     def is_ready(self):
         return self.running and self.ib.connected_event.is_set()
@@ -287,15 +283,40 @@ class TradingEngine:
         if not self.is_ready():
             raise RuntimeError("Engine is not connected")
 
-        details_req_id, details_event = self.ib.request_contract_details(symbol, "stock")
+        details = []
 
-        if not details_event.wait(timeout=timeout):
-            self.raise_request_error_if_any(details_req_id, "Contract details")
-            raise RuntimeError("Contract details timeout")
+        for attempt in range(2):
+            force_legacy = attempt == 1
+            details_req_id, details_event = self.ib.request_contract_details(
+                symbol,
+                "stock",
+                force_legacy=force_legacy,
+            )
 
-        self.raise_request_error_if_any(details_req_id, "Contract details")
+            if not details_event.wait(timeout=timeout):
+                self.raise_request_error_if_any(
+                    details_req_id,
+                    "Contract details",
+                )
+                raise RuntimeError("Contract details timeout")
 
-        details = self.ib.contract_details.get(details_req_id, [])
+            error = self.ib.request_errors.get(details_req_id)
+
+            if error:
+                if error["code"] == 321 and not force_legacy:
+                    print(
+                        "Contract details protobuf request failed with "
+                        "code=321; retrying with legacy protocol"
+                    )
+                    continue
+
+                self.raise_request_error_if_any(
+                    details_req_id,
+                    "Contract details",
+                )
+
+            details = self.ib.contract_details.get(details_req_id, [])
+            break
 
         if not details:
             raise RuntimeError(f"No contract details for {symbol}")

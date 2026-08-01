@@ -23,6 +23,8 @@ class App(EWrapper, EClient):
         self.request_errors = {}
         self.connected_event = threading.Event()
         self.market_data_event = threading.Event()
+        self.disconnect_requested = False
+        self.last_connection_close = None
 
         self.account_summary_event = threading.Event()
         self.account_summary_req_id = 9001
@@ -54,8 +56,16 @@ class App(EWrapper, EClient):
         self.connected_event.set()
 
     def connectionClosed(self):
+        closed_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+        self.last_connection_close = {
+            "at": closed_at,
+            "requested_by_app": self.disconnect_requested,
+        }
         self.connected_event.clear()
-        print("TWS connection closed")
+        print(
+            "TWS connection closed "
+            f"at={closed_at} requested_by_app={self.disconnect_requested}"
+        )
 
     def get_next_request_id(self):
         with self.request_id_lock:
@@ -253,6 +263,13 @@ class App(EWrapper, EClient):
         self.historical_data[req_id] = []
         self.historical_events[req_id] = event
         self.historical_req_id_to_symbol[req_id] = symbol_key
+        self.request_errors.pop(req_id, None)
+
+        print(
+            "Requesting historical data: "
+            f"req_id={req_id} symbol={symbol_key} duration={duration} "
+            f"bar_size={bar_size} asset_type={asset_type}"
+        )
 
         self.reqHistoricalData(
             req_id,
@@ -423,7 +440,12 @@ class App(EWrapper, EClient):
     ##################
     #### Option chain 
     ####################
-    def request_contract_details(self, symbol: str, asset_type: str = "stock"):
+    def request_contract_details(
+        self,
+        symbol: str,
+        asset_type: str = "stock",
+        force_legacy: bool = False,
+    ):
         if asset_type == "stock":
             contract, symbol_key = stock_contract(symbol)
         else:
@@ -435,8 +457,24 @@ class App(EWrapper, EClient):
 
         self.contract_details[req_id] = []
         self.contract_details_events[req_id] = event
+        self.request_errors.pop(req_id, None)
 
-        self.reqContractDetails(req_id, contract)
+        protocol = "legacy" if force_legacy else "default"
+        print(
+            "Requesting contract details: "
+            f"req_id={req_id} symbol={contract.symbol!r} "
+            f"sec_type={contract.secType!r} exchange={contract.exchange!r} "
+            f"currency={contract.currency!r} protocol={protocol}"
+        )
+
+        if force_legacy:
+            self.useProtoBuf = lambda _message_id: False
+            try:
+                self.reqContractDetails(req_id, contract)
+            finally:
+                del self.useProtoBuf
+        else:
+            self.reqContractDetails(req_id, contract)
 
         return req_id, event
     

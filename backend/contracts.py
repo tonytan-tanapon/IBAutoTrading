@@ -21,6 +21,9 @@ def option_contract(symbol: str, expiry: str, strike: float, right: str) -> tupl
 def stock_contract(symbol: str = "AAPL") -> tuple[Contract, str]:
     symbol = symbol.upper().strip()
 
+    if not symbol:
+        raise ValueError("Stock symbol must not be empty")
+
     contract = Contract()
     contract.symbol = symbol
     contract.secType = "STK"

@@ -1,3 +1,4 @@
+import traceback
 from threading import Lock, Thread
 
 from fastapi import FastAPI, HTTPException
@@ -35,6 +36,8 @@ def run_engine():
             engine_error = "TWS connection closed"
     except Exception as exc:
         engine_error = f"{type(exc).__name__}: {exc}"
+        print(f"Engine error: {engine_error}")
+        traceback.print_exc()
     finally:
         engine.stop()
 
@@ -107,6 +110,8 @@ def status():
         "engine_running": engine.running,
         "tws_connected": engine.ib.isConnected(),
         "error": engine_error,
+        "last_connection_close": engine.ib.last_connection_close,
+        "recent_ib_errors": engine.ib.errors[-10:],
     }
 
 
