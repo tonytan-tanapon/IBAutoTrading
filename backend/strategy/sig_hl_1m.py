@@ -1,11 +1,17 @@
 from ..config import (
+    HISTORICAL_BAR_SIZE,
     SIG_HL_ATR_MULTIPLIER,
     SIG_HL_ATR_PERIOD,
-    SIG_HL_TF_BARS,
+    SIG_HL_LOOKBACK_TF,
+    SIG_HL_SESSION_ANCHOR,
     UNDERLYING_SYMBOL,
 )
 from .base import BaseStrategy
-from .indicators import aggregate_ohlc, calculate_atr_trailing_stop
+from .indicators import (
+    calculate_atr_trailing_stop,
+    calculate_bars_per_timeframe,
+    completed_fixed_sessions,
+)
 
 
 class SigHL1mStrategy(BaseStrategy):
@@ -13,14 +19,23 @@ class SigHL1mStrategy(BaseStrategy):
 
     def calculate(self, context):
         historical_data = context["historical_data"]
-        minimum_bars = max(SIG_HL_TF_BARS * 2 + 2, SIG_HL_ATR_PERIOD + 2)
+        tf_bars = calculate_bars_per_timeframe(
+            SIG_HL_LOOKBACK_TF,
+            HISTORICAL_BAR_SIZE,
+        )
+        minimum_bars = max(tf_bars * 2 + 2, SIG_HL_ATR_PERIOD + 2)
+
         values = {
-            "tf_bars": SIG_HL_TF_BARS,
+            "lookback_tf": SIG_HL_LOOKBACK_TF,
+            "session_anchor": SIG_HL_SESSION_ANCHOR,
+            "bar_size": HISTORICAL_BAR_SIZE,
+            "tf_bars": tf_bars,
             "atr_period": SIG_HL_ATR_PERIOD,
             "atr_multiplier": SIG_HL_ATR_MULTIPLIER,
             "minimum_bars": minimum_bars,
         }
 
+        # if historical bar is not enough to process.
         if len(historical_data) < minimum_bars:
             return {
                 "values": values,
@@ -33,10 +48,28 @@ class SigHL1mStrategy(BaseStrategy):
         latest_bar = historical_data[-1]
         previous_bar = historical_data[-2]
         completed_bars = historical_data[:-1]
-        recent_completed_bars = completed_bars[-(SIG_HL_TF_BARS * 2):]
+        
+        completed_sessions = completed_fixed_sessions(
+            completed_bars,
+            timeframe=SIG_HL_LOOKBACK_TF,
+            anchor_time=SIG_HL_SESSION_ANCHOR,
+            current_bar=latest_bar,
+        )
 
-        prev_4h_2 = aggregate_ohlc(recent_completed_bars[:SIG_HL_TF_BARS])
-        prev_4h_1 = aggregate_ohlc(recent_completed_bars[SIG_HL_TF_BARS:])
+        values["completed_session_count"] = len(completed_sessions)
+
+        if len(completed_sessions) < 2:
+            return {
+                "values": values,
+                "conditions": {
+                    "has_enough_bars": True,
+                    "has_enough_sessions": False,
+                },
+                "signal": None,
+            }
+
+        prev_4h_2 = completed_sessions[-2]
+        prev_4h_1 = completed_sessions[-1]
 
         prev_high_1 = prev_4h_1["high"]
         prev_low_1 = prev_4h_1["low"]
@@ -100,6 +133,7 @@ class SigHL1mStrategy(BaseStrategy):
                 "atr_trailing_stop": atr_trailing_stop,
                 "latest_atr_stop": latest_atr_stop,
                 "previous_atr_stop": previous_atr_stop,
+                "completed_sessions": completed_sessions,
             }
         )
 
@@ -127,6 +161,7 @@ class SigHL1mStrategy(BaseStrategy):
             "values": values,
             "conditions": {
                 "has_enough_bars": True,
+                "has_enough_sessions": True,
                 "lower_high": lower_high,
                 "higher_low": higher_low,
                 "long_signal": long_signal,

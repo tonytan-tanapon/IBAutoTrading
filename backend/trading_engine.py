@@ -147,6 +147,7 @@ class TradingEngine:
         print("=====Strategy Snapshot====")
         self.print_table(self.flatten_snapshot(compact_snapshot))
 
+
     def print_table(self, rows):
         if not rows:
             print("(empty)")

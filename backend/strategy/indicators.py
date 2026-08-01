@@ -1,3 +1,144 @@
+from datetime import datetime, time, timedelta
+
+
+TIME_FORMATS = (
+    "%Y-%m-%d %H:%M:%S",
+    "%Y-%m-%d %H:%M",
+    "%Y%m%d %H:%M:%S",
+    "%Y%m%d %H:%M",
+)
+
+
+def parse_timeframe_minutes(value: str):
+    parts = value.strip().lower().split()
+
+    if len(parts) != 2:
+        raise ValueError(f"Invalid timeframe: {value}")
+
+    amount = int(parts[0])
+    unit = parts[1]
+
+    if amount <= 0:
+        raise ValueError("Timeframe amount must be greater than 0")
+
+    if unit in ("s", "sec", "secs", "second", "seconds"):
+        if amount % 60 != 0:
+            raise ValueError(f"Timeframe must resolve to whole minutes: {value}")
+
+        return amount // 60
+
+    if unit in ("m", "min", "mins", "minute", "minutes"):
+        return amount
+
+    if unit in ("h", "hour", "hours"):
+        return amount * 60
+
+    if unit in ("d", "day", "days"):
+        return amount * 24 * 60
+
+    raise ValueError(f"Unsupported timeframe unit: {unit}")
+
+
+def calculate_bars_per_timeframe(timeframe: str, bar_size: str):
+    timeframe_minutes = parse_timeframe_minutes(timeframe)
+    bar_minutes = parse_timeframe_minutes(bar_size)
+
+    if timeframe_minutes % bar_minutes != 0:
+        raise ValueError(
+            f"{timeframe} is not evenly divisible by bar size {bar_size}"
+        )
+
+    return timeframe_minutes // bar_minutes
+
+
+def parse_bar_datetime(value):
+    if isinstance(value, datetime):
+        return value
+
+    text = str(value).strip()
+
+    for time_format in TIME_FORMATS:
+        try:
+            return datetime.strptime(text, time_format)
+        except ValueError:
+            pass
+
+    try:
+        return datetime.fromisoformat(text)
+    except ValueError as error:
+        raise ValueError(f"Unsupported bar time format: {value}") from error
+
+
+def parse_anchor_time(value: str):
+    hour_text, minute_text = value.split(":", 1)
+    return time(hour=int(hour_text), minute=int(minute_text))
+
+
+def session_start_for_bar(bar_time, timeframe: str, anchor_time: str):
+    bar_datetime = parse_bar_datetime(bar_time)
+    anchor = parse_anchor_time(anchor_time)
+    timeframe_minutes = parse_timeframe_minutes(timeframe)
+    anchor_datetime = datetime.combine(bar_datetime.date(), anchor)
+
+    if bar_datetime < anchor_datetime:
+        anchor_datetime -= timedelta(days=1)
+
+    elapsed_minutes = int((bar_datetime - anchor_datetime).total_seconds() // 60)
+    session_index = elapsed_minutes // timeframe_minutes
+
+    return anchor_datetime + timedelta(
+        minutes=session_index * timeframe_minutes
+    )
+
+
+def completed_fixed_sessions(
+    bars,
+    timeframe: str,
+    anchor_time: str,
+    current_bar=None,
+):
+    if not bars:
+        return []
+
+    current_session_start = None
+
+    if current_bar is not None:
+        current_session_start = session_start_for_bar(
+            current_bar["time"],
+            timeframe,
+            anchor_time,
+        )
+
+    session_bars = {}
+
+    for bar in bars:
+        session_start = session_start_for_bar(
+            bar["time"],
+            timeframe,
+            anchor_time,
+        )
+
+        if session_start == current_session_start:
+            continue
+
+        session_bars.setdefault(session_start, []).append(bar)
+
+    completed_sessions = []
+
+    for session_start in sorted(session_bars):
+        session = aggregate_ohlc(session_bars[session_start])
+        session["session_start"] = session_start.isoformat(sep=" ")
+        session["session_end"] = (
+            session_start + timedelta(
+                minutes=parse_timeframe_minutes(timeframe)
+            )
+        ).isoformat(sep=" ")
+        session["bar_count"] = len(session_bars[session_start])
+        completed_sessions.append(session)
+
+    return completed_sessions
+
+
 def calculate_ema(values, period: int):
     if period <= 0:
         raise ValueError("EMA period must be greater than 0")

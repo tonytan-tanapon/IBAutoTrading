@@ -1,24 +1,32 @@
+# API config
 UNDERLYING_SYMBOL = "SPY"
 UNDERLYING_ASSET_TYPE = "stock"
-
 IB_HOST = "127.0.0.1"
 IB_PORT = 7497
 IB_CLIENT_ID = 0
 
+# historical config
 HISTORICAL_SYMBOL = "SPY"
 HISTORICAL_ASSET_TYPE = "stock"
 HISTORICAL_DURATION = "2 D"
 HISTORICAL_BAR_SIZE = "30 mins"
 HISTORICAL_TIMEOUT = 15
 
+# Strategy selection
 STRATEGY_NAME = "sig_hl_1m"
 SHOW_STRATEGY_SNAPSHOT = True
+
+# EMA strategy parameters
 EMA_FAST_PERIOD = 5
 EMA_SLOW_PERIOD = 10
-SIG_HL_TF_BARS = 8
+
+# SigHL strategy parameters
+SIG_HL_LOOKBACK_TF = "4 hours"
+SIG_HL_SESSION_ANCHOR = "09:30"
 SIG_HL_ATR_PERIOD = 10
 SIG_HL_ATR_MULTIPLIER = 1
 
+# Devlope config
 # True = simulate only, False = send real orders
 DRY_RUN_ORDERS = True
 
@@ -39,8 +47,8 @@ OPTION_HISTORICAL_BAR_SIZE = "5 mins"
 OPTION_HISTORICAL_TIMEOUT = 15
 FALLBACK_OPTION_LIMIT_PRICE = 0.01
 
-# RUN_MODE = "forever"
-RUN_MODE = "once"
+RUN_MODE = "forever"
+# RUN_MODE = "once"
 
 # Risk management
 RISK_PER_TRADE_PERCENT = 1.0

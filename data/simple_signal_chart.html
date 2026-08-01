@@ -1,0 +1,219 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>sig_hl_1m offline chart: simple_signal_bars.csv</title>
+  <style>
+    body {
+      margin: 0;
+      font-family: Arial, sans-serif;
+      color: #1f2937;
+      background: #f8fafc;
+    }
+    header {
+      padding: 18px 24px 8px;
+    }
+    h1 {
+      margin: 0;
+      font-size: 20px;
+      font-weight: 700;
+    }
+    .meta {
+      margin-top: 6px;
+      color: #64748b;
+      font-size: 13px;
+    }
+    .wrap {
+      padding: 12px 24px 24px;
+    }
+    .panel {
+      background: #ffffff;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      overflow: hidden;
+    }
+    svg {
+      display: block;
+      width: 100%;
+      height: 620px;
+    }
+    .axis {
+      stroke: #cbd5e1;
+      stroke-width: 1;
+    }
+    .grid {
+      stroke: #e2e8f0;
+      stroke-width: 1;
+    }
+    .label {
+      fill: #64748b;
+      font-size: 12px;
+    }
+    .up {
+      stroke: #059669;
+      fill: #d1fae5;
+    }
+    .down {
+      stroke: #dc2626;
+      fill: #fee2e2;
+    }
+    .level-long {
+      stroke: #2563eb;
+      stroke-width: 1.5;
+      stroke-dasharray: 5 4;
+      fill: none;
+    }
+    .level-short {
+      stroke: #9333ea;
+      stroke-width: 1.5;
+      stroke-dasharray: 5 4;
+      fill: none;
+    }
+    .atr-up {
+      stroke: #f59e0b;
+      stroke-width: 1.5;
+      fill: none;
+    }
+    .atr-dn {
+      stroke: #14b8a6;
+      stroke-width: 1.5;
+      fill: none;
+    }
+    .signal {
+      fill: #111827;
+      stroke: #ffffff;
+      stroke-width: 2;
+    }
+    .legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 14px;
+      padding: 12px 16px;
+      border-top: 1px solid #e2e8f0;
+      font-size: 13px;
+      color: #475569;
+    }
+    .swatch {
+      display: inline-block;
+      width: 20px;
+      height: 3px;
+      margin-right: 6px;
+      vertical-align: middle;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>sig_hl_1m offline chart: simple_signal_bars.csv</h1>
+    <div class="meta">Candles, SigHL levels, ATR trailing stop, and signal markers from offline CSV replay.</div>
+  </header>
+  <div class="wrap">
+    <div class="panel">
+      <svg id="chart" role="img" aria-label="sig_hl_1m offline chart: simple_signal_bars.csv"></svg>
+      <div class="legend">
+        <span><span class="swatch" style="background:#2563eb"></span>Long level</span>
+        <span><span class="swatch" style="background:#9333ea"></span>Short level</span>
+        <span><span class="swatch" style="background:#f59e0b"></span>ATR up</span>
+        <span><span class="swatch" style="background:#14b8a6"></span>ATR down</span>
+        <span>● Signal</span>
+      </div>
+    </div>
+  </div>
+  <script>
+    const rows = [{"index": 1, "time": "2026-06-22 09:30:00", "open": 112.0, "high": 113.0, "low": 111.0, "close": 112.0, "signal": null, "reason": null, "longLevel": null, "shortLevel": null, "atrUp": null, "atrDn": null}, {"index": 2, "time": "2026-06-22 09:31:00", "open": 111.0, "high": 112.0, "low": 110.0, "close": 111.0, "signal": null, "reason": null, "longLevel": null, "shortLevel": null, "atrUp": null, "atrDn": null}, {"index": 3, "time": "2026-06-22 09:32:00", "open": 110.0, "high": 111.0, "low": 109.0, "close": 110.0, "signal": null, "reason": null, "longLevel": null, "shortLevel": null, "atrUp": null, "atrDn": null}, {"index": 4, "time": "2026-06-22 09:33:00", "open": 109.0, "high": 110.0, "low": 108.0, "close": 109.0, "signal": null, "reason": null, "longLevel": null, "shortLevel": null, "atrUp": null, "atrDn": null}, {"index": 5, "time": "2026-06-22 09:34:00", "open": 108.0, "high": 109.0, "low": 107.0, "close": 108.0, "signal": null, "reason": null, "longLevel": null, "shortLevel": null, "atrUp": null, "atrDn": null}, {"index": 6, "time": "2026-06-22 09:35:00", "open": 107.0, "high": 108.0, "low": 106.0, "close": 107.0, "signal": null, "reason": null, "longLevel": null, "shortLevel": null, "atrUp": null, "atrDn": null}, {"index": 7, "time": "2026-06-22 09:36:00", "open": 106.0, "high": 107.0, "low": 105.0, "close": 106.0, "signal": null, "reason": null, "longLevel": null, "shortLevel": null, "atrUp": null, "atrDn": null}, {"index": 8, "time": "2026-06-22 09:37:00", "open": 105.0, "high": 106.0, "low": 104.0, "close": 105.0, "signal": null, "reason": null, "longLevel": null, "shortLevel": null, "atrUp": null, "atrDn": null}, {"index": 9, "time": "2026-06-22 09:38:00", "open": 104.0, "high": 105.0, "low": 103.0, "close": 104.0, "signal": null, "reason": null, "longLevel": null, "shortLevel": null, "atrUp": null, "atrDn": null}, {"index": 10, "time": "2026-06-22 09:39:00", "open": 103.0, "high": 104.0, "low": 102.0, "close": 103.0, "signal": null, "reason": null, "longLevel": null, "shortLevel": null, "atrUp": null, "atrDn": null}, {"index": 11, "time": "2026-06-22 09:40:00", "open": 102.0, "high": 103.0, "low": 101.0, "close": 102.0, "signal": null, "reason": null, "longLevel": null, "shortLevel": null, "atrUp": null, "atrDn": null}, {"index": 12, "time": "2026-06-22 09:41:00", "open": 101.0, "high": 102.0, "low": 100.0, "close": 101.0, "signal": null, "reason": null, "longLevel": null, "shortLevel": null, "atrUp": null, "atrDn": null}, {"index": 13, "time": "2026-06-22 09:42:00", "open": 100.0, "high": 101.0, "low": 99.0, "close": 100.0, "signal": null, "reason": null, "longLevel": null, "shortLevel": null, "atrUp": null, "atrDn": null}, {"index": 14, "time": "2026-06-22 09:43:00", "open": 99.0, "high": 100.0, "low": 98.0, "close": 99.0, "signal": null, "reason": null, "longLevel": null, "shortLevel": null, "atrUp": null, "atrDn": null}, {"index": 15, "time": "2026-06-22 09:44:00", "open": 98.0, "high": 99.0, "low": 97.0, "close": 98.0, "signal": null, "reason": null, "longLevel": null, "shortLevel": null, "atrUp": null, "atrDn": null}, {"index": 16, "time": "2026-06-22 09:45:00", "open": 97.0, "high": 98.0, "low": 96.0, "close": 97.0, "signal": null, "reason": null, "longLevel": null, "shortLevel": null, "atrUp": null, "atrDn": null}, {"index": 17, "time": "2026-06-22 09:46:00", "open": 96.0, "high": 96.5, "low": 95.0, "close": 95.5, "signal": null, "reason": null, "longLevel": null, "shortLevel": null, "atrUp": null, "atrDn": null}, {"index": 18, "time": "2026-06-22 09:47:00", "open": 94.5, "high": 94.9, "low": 94.0, "close": 94.5, "signal": null, "reason": null, "longLevel": 108.5, "shortLevel": 90.5, "atrUp": 95.0, "atrDn": 96.4}, {"index": 19, "time": "2026-06-22 09:48:00", "open": 94.5, "high": 109.0, "low": 106.0, "close": 108.5, "signal": "CALL", "reason": "SigHL long signal with ATR trailing stop call confirmation", "longLevel": 107.5, "shortLevel": 89.5, "atrUp": 104.295, "atrDn": 96.4}];
+    const svg = document.getElementById("chart");
+    const width = 1200;
+    const height = 620;
+    const margin = { top: 24, right: 72, bottom: 64, left: 54 };
+    const plotWidth = width - margin.left - margin.right;
+    const plotHeight = height - margin.top - margin.bottom;
+    svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+
+    const values = [];
+    for (const row of rows) {
+      values.push(row.high, row.low);
+      for (const key of ["longLevel", "shortLevel", "atrUp", "atrDn"]) {
+        if (row[key] !== null && row[key] !== undefined) values.push(Number(row[key]));
+      }
+    }
+    const minValue = Math.min(...values);
+    const maxValue = Math.max(...values);
+    const pad = Math.max((maxValue - minValue) * 0.08, 0.5);
+    const yMin = minValue - pad;
+    const yMax = maxValue + pad;
+    const candleStep = plotWidth / Math.max(rows.length, 1);
+    const candleWidth = Math.max(Math.min(candleStep * 0.58, 14), 4);
+
+    function x(index) {
+      return margin.left + (index - 0.5) * candleStep;
+    }
+    function y(value) {
+      return margin.top + (yMax - value) / (yMax - yMin) * plotHeight;
+    }
+    function add(tag, attrs, text) {
+      const node = document.createElementNS("http://www.w3.org/2000/svg", tag);
+      for (const [key, value] of Object.entries(attrs)) node.setAttribute(key, value);
+      if (text !== undefined) node.textContent = text;
+      svg.appendChild(node);
+      return node;
+    }
+    function pathFor(key) {
+      let d = "";
+      for (const row of rows) {
+        const value = row[key];
+        if (value === null || value === undefined) continue;
+        d += `${d ? "L" : "M"} ${x(row.index)} ${y(Number(value))} `;
+      }
+      return d.trim();
+    }
+
+    for (let i = 0; i <= 5; i++) {
+      const value = yMin + (yMax - yMin) * i / 5;
+      const py = y(value);
+      add("line", { class: "grid", x1: margin.left, y1: py, x2: width - margin.right, y2: py });
+      add("text", { class: "label", x: width - margin.right + 8, y: py + 4 }, value.toFixed(2));
+    }
+
+    add("line", { class: "axis", x1: margin.left, y1: margin.top, x2: margin.left, y2: height - margin.bottom });
+    add("line", { class: "axis", x1: margin.left, y1: height - margin.bottom, x2: width - margin.right, y2: height - margin.bottom });
+
+    add("path", { class: "level-long", d: pathFor("longLevel") });
+    add("path", { class: "level-short", d: pathFor("shortLevel") });
+    add("path", { class: "atr-up", d: pathFor("atrUp") });
+    add("path", { class: "atr-dn", d: pathFor("atrDn") });
+
+    for (const row of rows) {
+      const cx = x(row.index);
+      const isUp = row.close >= row.open;
+      add("line", { class: isUp ? "up" : "down", x1: cx, y1: y(row.high), x2: cx, y2: y(row.low) });
+      const bodyTop = y(Math.max(row.open, row.close));
+      const bodyHeight = Math.max(Math.abs(y(row.open) - y(row.close)), 1);
+      add("rect", {
+        class: isUp ? "up" : "down",
+        x: cx - candleWidth / 2,
+        y: bodyTop,
+        width: candleWidth,
+        height: bodyHeight,
+        rx: 1
+      });
+
+      if (row.signal) {
+        add("circle", { class: "signal", cx, cy: y(row.high) - 14, r: 7 });
+        add("text", { class: "label", x: cx + 10, y: y(row.high) - 10 }, row.signal);
+      }
+    }
+
+    const labelEvery = Math.max(Math.ceil(rows.length / 8), 1);
+    for (const row of rows) {
+      if ((row.index - 1) % labelEvery !== 0 && row.index !== rows.length) continue;
+      add("text", {
+        class: "label",
+        x: x(row.index),
+        y: height - margin.bottom + 24,
+        "text-anchor": "middle"
+      }, row.time);
+    }
+  </script>
+</body>
+</html>

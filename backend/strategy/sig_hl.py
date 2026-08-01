@@ -1,6 +1,11 @@
-from ..config import SIG_HL_TF_BARS, UNDERLYING_SYMBOL
+from ..config import (
+    HISTORICAL_BAR_SIZE,
+    SIG_HL_LOOKBACK_TF,
+    SIG_HL_SESSION_ANCHOR,
+    UNDERLYING_SYMBOL,
+)
 from .base import BaseStrategy
-from .indicators import aggregate_ohlc
+from .indicators import calculate_bars_per_timeframe, completed_fixed_sessions
 
 
 class SigHLStrategy(BaseStrategy):
@@ -8,9 +13,16 @@ class SigHLStrategy(BaseStrategy):
 
     def calculate(self, context):
         historical_data = context["historical_data"]
-        minimum_bars = SIG_HL_TF_BARS * 2 + 3
+        tf_bars = calculate_bars_per_timeframe(
+            SIG_HL_LOOKBACK_TF,
+            HISTORICAL_BAR_SIZE,
+        )
+        minimum_bars = tf_bars * 2 + 3
         values = {
-            "tf_bars": SIG_HL_TF_BARS,
+            "lookback_tf": SIG_HL_LOOKBACK_TF,
+            "session_anchor": SIG_HL_SESSION_ANCHOR,
+            "bar_size": HISTORICAL_BAR_SIZE,
+            "tf_bars": tf_bars,
             "minimum_bars": minimum_bars,
         }
 
@@ -27,10 +39,27 @@ class SigHLStrategy(BaseStrategy):
         previous_bar = historical_data[-2]
         two_bars_ago = historical_data[-3]
         completed_bars = historical_data[:-1]
-        recent_completed_bars = completed_bars[-(SIG_HL_TF_BARS * 2):]
+        completed_sessions = completed_fixed_sessions(
+            completed_bars,
+            timeframe=SIG_HL_LOOKBACK_TF,
+            anchor_time=SIG_HL_SESSION_ANCHOR,
+            current_bar=latest_bar,
+        )
 
-        prev_4h_2 = aggregate_ohlc(recent_completed_bars[:SIG_HL_TF_BARS])
-        prev_4h_1 = aggregate_ohlc(recent_completed_bars[SIG_HL_TF_BARS:])
+        values["completed_session_count"] = len(completed_sessions)
+
+        if len(completed_sessions) < 2:
+            return {
+                "values": values,
+                "conditions": {
+                    "has_enough_bars": True,
+                    "has_enough_sessions": False,
+                },
+                "signal": None,
+            }
+
+        prev_4h_2 = completed_sessions[-2]
+        prev_4h_1 = completed_sessions[-1]
 
         prev_high_1 = prev_4h_1["high"]
         prev_low_1 = prev_4h_1["low"]
@@ -77,6 +106,7 @@ class SigHLStrategy(BaseStrategy):
                 "prev_4h_1": prev_4h_1,
                 "prev_4h_2": prev_4h_2,
                 "levels": levels,
+                "completed_sessions": completed_sessions,
             }
         )
 
@@ -104,6 +134,7 @@ class SigHLStrategy(BaseStrategy):
             "values": values,
             "conditions": {
                 "has_enough_bars": True,
+                "has_enough_sessions": True,
                 "lower_high": lower_high,
                 "higher_low": higher_low,
                 "long_signal": long_signal,
