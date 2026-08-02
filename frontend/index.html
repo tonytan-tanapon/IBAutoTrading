@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>IB Auto Trading Dashboard</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div>
+      <p class="eyebrow">Interactive Brokers</p>
+      <h1>Auto Trading Dashboard</h1>
+    </div>
+    <div class="topbar-actions">
+      <div id="connection-badge" class="badge badge-offline"><span></span> Offline</div>
+      <button id="start-button" class="button button-primary">Start Engine</button>
+      <button id="stop-button" class="button button-secondary">Stop Engine</button>
+    </div>
+  </header>
+
+  <main class="page-shell">
+    <section id="alert" class="alert hidden"></section>
+
+    <section class="summary-grid">
+      <article class="metric-card accent-card">
+        <p class="metric-label">Symbol</p>
+        <strong id="symbol-value" class="metric-value">—</strong>
+        <span id="market-updated" class="metric-note">Waiting for market data</span>
+      </article>
+      <article class="metric-card">
+        <p class="metric-label">Last price</p>
+        <strong id="last-price" class="metric-value">—</strong>
+        <span id="bid-ask" class="metric-note">Bid — · Ask —</span>
+      </article>
+      <article class="metric-card">
+        <p class="metric-label">Strategy signal</p>
+        <strong id="signal-value" class="metric-value signal-neutral">WAIT</strong>
+        <span id="strategy-name" class="metric-note">—</span>
+      </article>
+      <article class="metric-card">
+        <p class="metric-label">Historical bars</p>
+        <strong id="bar-count" class="metric-value">0</strong>
+        <span class="metric-note">Loaded at startup</span>
+      </article>
+      <article class="metric-card">
+        <p class="metric-label">Trading mode</p>
+        <strong id="trading-mode" class="metric-value safe-text">DRY RUN</strong>
+        <span class="metric-note">Order safety status</span>
+      </article>
+    </section>
+
+    <section class="content-grid">
+      <article class="panel panel-wide">
+        <div class="panel-heading">
+          <div><p class="eyebrow">Price action</p><h2>Historical candlesticks</h2></div>
+          <span id="chart-range" class="muted">Waiting for bars</span>
+        </div>
+        <div id="chart-container" class="chart-container">
+          <canvas id="candlestick-chart"></canvas>
+          <div id="chart-empty" class="chart-empty">Start the engine to load historical bars</div>
+        </div>
+      </article>
+
+      <article class="panel panel-wide">
+        <div class="panel-heading"><div><p class="eyebrow">Portfolio</p><h2>Account summary</h2></div></div>
+        <div id="account-table" class="table-wrap"></div>
+      </article>
+
+      <article class="panel">
+        <div class="panel-heading"><div><p class="eyebrow">Exposure</p><h2>Positions</h2></div><span id="position-count" class="count-pill">0</span></div>
+        <div id="positions-table" class="table-wrap"></div>
+      </article>
+
+      <article class="panel">
+        <div class="panel-heading"><div><p class="eyebrow">Execution</p><h2>Open orders</h2></div><span id="order-count" class="count-pill">0</span></div>
+        <div id="orders-table" class="table-wrap"></div>
+      </article>
+
+      <article class="panel panel-wide">
+        <div class="panel-heading"><div><p class="eyebrow">Decision engine</p><h2>Strategy snapshot</h2></div></div>
+        <div id="strategy-table" class="table-wrap"></div>
+      </article>
+
+      <article class="panel panel-wide">
+        <div class="panel-heading"><div><p class="eyebrow">Diagnostics</p><h2>Recent IB events</h2></div><span id="last-refresh" class="muted">—</span></div>
+        <div id="errors-table" class="table-wrap"></div>
+      </article>
+    </section>
+  </main>
+
+  <script src="/static/app.js" defer></script>
+</body>
+</html>

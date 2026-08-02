@@ -1,10 +1,14 @@
 import traceback
+from pathlib import Path
 from threading import Lock, Thread
 
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import HTMLResponse
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
 from .config import (
+    DRY_RUN_ORDERS,
+    STRATEGY_NAME,
     UNDERLYING_ASSET_TYPE,
     UNDERLYING_SYMBOL,
 )
@@ -12,6 +16,8 @@ from .trading_engine import TradingEngine
 
 
 app = FastAPI(title="IB Auto Trading Dashboard")
+frontend_dir = Path(__file__).resolve().parents[1] / "frontend"
+app.mount("/static", StaticFiles(directory=frontend_dir), name="static")
 
 engine = TradingEngine()
 engine_lock = Lock()
@@ -42,71 +48,18 @@ def run_engine():
         engine.stop()
 
 
-@app.get("/", response_class=HTMLResponse)
+@app.get("/", response_class=FileResponse)
 def dashboard():
-    return """
-    <!DOCTYPE html>
-    <html lang="th">
-    <head>
-        <meta charset="UTF-8">
-        <title>IB Auto Trading</title>
-    </head>
-    <body>
-        <h1>IB Auto Trading Dashboard</h1>
-
-        <button onclick="startEngine()">Start Engine</button>
-        <button onclick="stopEngine()">Stop Engine</button>
-
-        <pre id="status">Loading...</pre>
-
-        <h2>Trading Data</h2>
-        <pre id="trading-data">Waiting for engine...</pre>
-
-        <script>
-            async function loadStatus() {
-                const response = await fetch("/api/status");
-                const data = await response.json();
-                document.getElementById("status").textContent =
-                    JSON.stringify(data, null, 2);
-            }
-
-            async function loadTradingData() {
-                try {
-                    const response = await fetch("/api/dashboard");
-                    const data = await response.json();
-                    document.getElementById("trading-data").textContent =
-                        JSON.stringify(data, null, 2);
-                } catch (error) {
-                    document.getElementById("trading-data").textContent =
-                        "Failed to load data: " + error;
-                }
-            }
-
-            async function startEngine() {
-                await fetch("/api/engine/start", { method: "POST" });
-                await loadStatus();
-            }
-
-            async function stopEngine() {
-                await fetch("/api/engine/stop", { method: "POST" });
-                await loadStatus();
-            }
-
-            loadStatus();
-            loadTradingData();
-
-            setInterval(loadStatus, 2000);
-            setInterval(loadTradingData, 2000);
-        </script>
-    </body>
-    </html>
-    """
+    return frontend_dir / "index.html"
 
 
 @app.get("/api/status")
 def status():
     return {
         "web_server": "running",
+        "symbol": UNDERLYING_SYMBOL,
+        "strategy_name": STRATEGY_NAME,
+        "dry_run_orders": DRY_RUN_ORDERS,
         "engine_running": engine.running,
         "tws_connected": engine.ib.isConnected(),
         "error": engine_error,
@@ -127,6 +80,7 @@ def dashboard_data():
             snapshot_error = str(exc)
 
     return {
+        "symbol": UNDERLYING_SYMBOL,
         "market_data": dict(engine.ib.market_data),
         "account_summary": dict(engine.ib.account_summary),
         "positions": dict(engine.ib.positions),
@@ -134,6 +88,7 @@ def dashboard_data():
         "strategy": snapshot,
         "strategy_error": snapshot_error,
         "historical_bar_count": len(engine.historical_data),
+        "historical_data": list(engine.historical_data),
     }
 
 
