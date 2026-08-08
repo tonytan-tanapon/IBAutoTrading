@@ -2,6 +2,7 @@ from .ema_cross import EmaCrossStrategy
 from .sig_hl import SigHLStrategy
 from .sig_hl_1m import SigHL1mStrategy
 from .simple_call import SimpleCallStrategy
+from .break1m import Break1MStrategy
 
 
 STRATEGIES = {
@@ -9,6 +10,7 @@ STRATEGIES = {
     SigHLStrategy.name: SigHLStrategy,
     SigHL1mStrategy.name: SigHL1mStrategy,
     SimpleCallStrategy.name: SimpleCallStrategy,
+    Break1MStrategy.name: Break1MStrategy,
 }
 
 

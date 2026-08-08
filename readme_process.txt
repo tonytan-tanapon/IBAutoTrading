@@ -19,17 +19,18 @@ IB_CLIENT_ID = 0
 Account summary
 Positions
 Open orders
-Historical data ของ SPY
-Option chain ของ SPY
+Historical data ของ TSLA
+Option chain ของ TSLA
+
 Historical Data ใช้ค่าปัจจุบัน:
 HISTORICAL_DURATION = "2 D"
 HISTORICAL_BAR_SIZE = "30 mins"
 HISTORICAL_TIMEOUT = 15
 ถ้ารายการใดโหลดไม่สำเร็จ จะถือว่าการเริ่ม Engine ล้มเหลว และ disconnect
 
-6. Subscribe ราคาสดของ SPY
+6. Subscribe ราคาสดของ TSLA
 เมื่อข้อมูลเริ่มต้นครบ โปรแกรมเรียก Market Data ของ:
-UNDERLYING_SYMBOL = "SPY"
+UNDERLYING_SYMBOL = "TSLA"
 UNDERLYING_ASSET_TYPE = "stock"
 
 7. เข้าโหมดทำงานต่อเนื่อง
