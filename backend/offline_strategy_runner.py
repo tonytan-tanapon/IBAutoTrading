@@ -1,5 +1,6 @@
 import argparse
 import csv
+import sys
 from pathlib import Path
 
 from .config import STRATEGY_NAME
@@ -84,6 +85,38 @@ def print_signal(index, snapshot):
     )
 
 
+def print_strategy_details(index, snapshot):
+    """Print one replay row with state-machine details for debugging."""
+    bar = snapshot["latest_bar"] or {}
+    values = snapshot["values"]
+    signal = snapshot["signal"]
+    levels = values.get("levels", {})
+
+    csv.writer(sys.stdout, lineterminator="\n").writerow(
+        [
+            str(index),
+            str(bar.get("time", "")),
+            format_price(bar.get("open")),
+            format_price(bar.get("high")),
+            format_price(bar.get("low")),
+            format_price(bar.get("close")),
+            str(values.get("bias", "")),
+            str(values.get("state", "")),
+            format_price(values.get("opening_high")),
+            format_price(values.get("opening_low")),
+            format_price(values.get("up_peak")),
+            format_price(values.get("pullback_low")),
+            format_price(values.get("down_trough")),
+            format_price(values.get("bounce_high")),
+            signal["direction"] if signal else "",
+            format_price(levels.get("entry_price")),
+            format_price(levels.get("stop_price")),
+            format_price(levels.get("target_price")),
+            signal["reason"] if signal else "",
+        ]
+    )
+
+
 def run_final_snapshot(strategy, bars):
     snapshot = strategy.get_snapshot(make_context(bars))
     signal = snapshot["signal"]
@@ -111,28 +144,42 @@ def run_final_snapshot(strategy, bars):
         print(f"  {key}: {value}")
 
 
-def run_replay(strategy, bars, show_all):
-    print(
-        ",".join(
+def run_replay(strategy, bars, show_all, strategy_details=False):
+    if strategy_details:
+        csv.writer(sys.stdout, lineterminator="\n").writerow(
             [
-                "bar",
-                "time",
-                "close",
-                "direction",
-                "reason",
-                "long_level",
-                "short_level",
-                "atr_up",
-                "atr_dn",
+                "bar", "time", "open", "high", "low", "close",
+                "bias", "state", "opening_high", "opening_low",
+                "up_peak", "pullback_low", "down_trough",
+                "bounce_high", "direction", "entry", "stop",
+                "target", "reason",
             ]
         )
-    )
+    else:
+        print(
+            ",".join(
+                [
+                    "bar",
+                    "time",
+                    "close",
+                    "direction",
+                    "reason",
+                    "long_level",
+                    "short_level",
+                    "atr_up",
+                    "atr_dn",
+                ]
+            )
+        )
 
     for index in range(1, len(bars) + 1):
         snapshot = strategy.get_snapshot(make_context(bars[:index]))
 
         if show_all or snapshot["signal"]:
-            print_signal(index, snapshot)
+            if strategy_details:
+                print_strategy_details(index, snapshot)
+            else:
+                print_signal(index, snapshot)
 
 
 def parse_args():
@@ -156,6 +203,14 @@ def parse_args():
         action="store_true",
         help="In replay mode, print rows even when there is no signal.",
     )
+    parser.add_argument(
+        "--strategy-details",
+        action="store_true",
+        help=(
+            "Show OHLC, state-machine values, and trade levels in replay mode. "
+            "The default replay output remains unchanged."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -172,7 +227,7 @@ def main():
         run_final_snapshot(strategy, bars)
         return
 
-    run_replay(strategy, bars, args.show_all)
+    run_replay(strategy, bars, args.show_all, args.strategy_details)
 
 
 if __name__ == "__main__":
